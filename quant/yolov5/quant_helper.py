@@ -9,22 +9,38 @@ from pytorch_quantization import quant_modules
 from pytorch_quantization import tensor_quant
 from pytorch_quantization.nn.modules import _utils as quant_nn_utils
 from pytorch_quantization import calib as quant_calib
+from tqdm import tqdm
 
-
-def set_calibrator_method(use_per_channel: bool = False, calib_method: str = "histogram"):
-    """set_calibrator_method
+def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "histogram"):
+    """set_calibrate_method
     Brief:
         For all the layer's input, use per-tensor quantization, and the calibrator method of input and weight are the same. 
     Args:
         use_per_channel: for each layer's weight use per-channel quantization.
         calib_method: the calibrator method.
     """
-    # For input use per-tensor scale.
-    quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
-    quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
-    quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
-    quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
-    if not use_per_channel:
+    # # For input use per-tensor scale.
+    # quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
+    # quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
+    # quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
+    # quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
+    # if not use_per_channel:
+    #     # For weight use per-tensor scale too.
+    #     quant_desc_weight = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
+    #     quant_nn.QuantConv2d.set_default_quant_desc_weight(quant_desc_weight)
+    #     quant_nn.QuantLinear.set_default_quant_desc_weight(quant_desc_weight)
+    if use_per_channel:
+        # For input use per-tensor scale.
+        quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method)
+        quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
+        quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
+        quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
+    else:
+        # For input use per-tensor scale.
+        quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
+        quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
+        quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
+        quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
         # For weight use per-tensor scale too.
         quant_desc_weight = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
         quant_nn.QuantConv2d.set_default_quant_desc_weight(quant_desc_weight)
@@ -113,32 +129,25 @@ def quant_calib_wrapper(calib_func):
 @quant_calib_wrapper
 @torch.no_grad()
 def collect_statics(model: torch.nn.Module, dataloader, device, num_batch=200):
-    model.eval()
-    for idx, datas in enumerate(dataloader):
+    model.to(device)
+    for idx, datas in tqdm(enumerate(dataloader), total=min(len(dataloader), num_batch)):
         imgs: torch.Tensor = datas[0].to(device, non_blocking=True).float() / 255.0
         model(imgs)
         if idx > num_batch:
             break
 
 
-@torch.no_grad()    
-def compuate_amax(model: torch.nn.Module, device, **kwargs):
+def compute_amax(model: torch.nn.Module, device, **kwargs):
+    model.to(device)
     for _, module in model.named_modules():
         if isinstance(module, quant_nn.TensorQuantizer):
             if module._calibrator is not None:
                 if isinstance(module._calibrator, quant_calib.MaxCalibrator):
-                    module._calibrator.compute_amax()
+                    module.load_calib_amax()
                 else:
-                    module._calibrator.compute_amax(**kwargs)
+                    module.load_calib_amax(**kwargs)
                 if module.amax is not None:
                     module.amax.to(device)
-
-
-@torch.no_grad()
-def calibrate_model(model: torch.nn.Module, dataloader, device, num_batch: int = 200, **kwargs) -> torch.nn.Module:
-    collect_statics(model, dataloader, device, num_batch)
-    compuate_amax(model, device, **kwargs)
-    return model
 
 
 class QuantExportOnnxCtx():
