@@ -12,7 +12,7 @@ cmake ..
 make -j16
 ```
 
-## run 
+## run
 
 ```shell
 cd workspace
@@ -26,14 +26,23 @@ cd workspace
   ```shell
   cd quant/yolov5
   python yolov5_qat.py
+  trtexec --onnx=../onnx_files/yolov5n-percentile-99.9999-1024.onnx \
+      --saveEngine=../engine_files/yolov5n-percentile-99.9999-1024.engine \
+      --memPoolSize=workspace:1024 \
+      --profilingVerbosity=detailed \
+      --dumpProfile \
+      --dumpLayerInfo \
+      --exportProfile=../log_files/builder/profile-int8.log \
+      --exportLayerInfo=../log_files/builder/layer-info-int8.log \
+      --int8 --noTF32 \
+      >./builder-int8.log
   ```
-
 * [`infer single image`](./src/infer_image.cpp)
 
   ```cpp
   std::string image_path = "./train.jpg";
   cv::Mat image = cv::imread(image_path);
-      
+  
   std::string engine_path = "../../quant/yolov5/engine_files/yolov5n-ptq-percentile-99.99-1024.engine";
   auto infer = tinycv::yolo::load(engine_path);
   warm_up(infer);
@@ -46,7 +55,6 @@ cd workspace
   auto boxes = infer->forward(in_mat);
   return 0;
   ```
-
 * [`infer_video_with_CUVID`](./src/infer_hardware.cpp)
 
   ```cpp
@@ -104,6 +112,3 @@ cd workspace
       }
   }
   ```
-
-  
-

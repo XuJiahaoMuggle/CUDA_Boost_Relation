@@ -72,32 +72,32 @@ add_subdirectory(host_process)
 # exe srcs
 set(TEST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(benchmark
-    ${TEST_SOURCE_DIR}/benchmark.cpp 
-    ${MEMORY_SRCS} 
-    ${UTILS_SRCS}
-    ${CUDA_BOOST_SRCS}
-    ${VIDEO_PROC_SRCS}
-    ${IMAGE_PROC_SRCS}
-    ${TRT_SRCS}
-    ${TRT_PLUGIN_SRCS}
-    ${HOST_SRCS}
-    ${YOLO_SRCS}
-)
+# add_executable(benchmark
+#     ${TEST_SOURCE_DIR}/benchmark.cpp 
+#     ${MEMORY_SRCS} 
+#     ${UTILS_SRCS}
+#     ${CUDA_BOOST_SRCS}
+#     ${VIDEO_PROC_SRCS}
+#     ${IMAGE_PROC_SRCS}
+#     ${TRT_SRCS}
+#     ${TRT_PLUGIN_SRCS}
+#     ${HOST_SRCS}
+#     ${YOLO_SRCS}
+# )
 
-target_link_libraries(benchmark
-    PRIVATE cudart           # cuda runtime
-    PRIVATE cuda             # cuda
-    PRIVATE ${OpenCV_LIBS}   # opencv
-    PRIVATE nvinfer          # nvinfer
-    PRIVATE nvonnxparser     # nvonnxparser
-    PRIVATE nvinfer_plugin   # nvinfer_plugin
-    PRIVATE avcodec          # avcodec
-    PRIVATE avformat         # avformat
-    PRIVATE avutil           # avutil
-    PRIVATE avdevice         # avdevice
-    PRIVATE nvcuvid
-)
+# target_link_libraries(benchmark
+#     PRIVATE cudart           # cuda runtime
+#     PRIVATE cuda             # cuda
+#     PRIVATE ${OpenCV_LIBS}   # opencv
+#     PRIVATE nvinfer          # nvinfer
+#     PRIVATE nvonnxparser     # nvonnxparser
+#     PRIVATE nvinfer_plugin   # nvinfer_plugin
+#     PRIVATE avcodec          # avcodec
+#     PRIVATE avformat         # avformat
+#     PRIVATE avutil           # avutil
+#     PRIVATE avdevice         # avdevice
+#     PRIVATE nvcuvid
+# )
 
 # add_executable(infer_image
 #     ${TEST_SOURCE_DIR}/infer_image.cpp 
@@ -125,31 +125,31 @@ target_link_libraries(benchmark
 #     PRIVATE nvcuvid
 # )
 
-# add_executable(infer_video
-#     ${TEST_SOURCE_DIR}/infer_video.cpp 
-#     ${MEMORY_SRCS} 
-#     ${UTILS_SRCS}
-#     ${CUDA_BOOST_SRCS}
-#     ${VIDEO_PROC_SRCS}
-#     ${IMAGE_PROC_SRCS}
-#     ${TRT_SRCS}
-#     ${TRT_PLUGIN_SRCS}
-#     ${YOLO_SRCS}
-# )
+add_executable(infer_video
+    ${TEST_SOURCE_DIR}/infer_video.cpp 
+    ${MEMORY_SRCS} 
+    ${UTILS_SRCS}
+    ${CUDA_BOOST_SRCS}
+    ${VIDEO_PROC_SRCS}
+    ${IMAGE_PROC_SRCS}
+    ${TRT_SRCS}
+    ${TRT_PLUGIN_SRCS}
+    ${YOLO_SRCS}
+)
 
-# target_link_libraries(infer_video
-#     PRIVATE cudart           # cuda runtime
-#     PRIVATE cuda             # cuda
-#     PRIVATE ${OpenCV_LIBS}   # opencv
-#     PRIVATE nvinfer          # nvinfer
-#     PRIVATE nvonnxparser     # nvonnxparser
-#     PRIVATE nvinfer_plugin   # nvinfer_plugin
-#     PRIVATE avcodec          # avcodec
-#     PRIVATE avformat         # avformat
-#     PRIVATE avutil           # avutil
-#     PRIVATE avdevice         # avdevice
-#     PRIVATE nvcuvid
-# )
+target_link_libraries(infer_video
+    PRIVATE cudart           # cuda runtime
+    PRIVATE cuda             # cuda
+    PRIVATE ${OpenCV_LIBS}   # opencv
+    PRIVATE nvinfer          # nvinfer
+    PRIVATE nvonnxparser     # nvonnxparser
+    PRIVATE nvinfer_plugin   # nvinfer_plugin
+    PRIVATE avcodec          # avcodec
+    PRIVATE avformat         # avformat
+    PRIVATE avutil           # avutil
+    PRIVATE avdevice         # avdevice
+    PRIVATE nvcuvid
+)
 
 # add_executable(infer_cpm
 #     ${TEST_SOURCE_DIR}/infer_cpm.cpp 

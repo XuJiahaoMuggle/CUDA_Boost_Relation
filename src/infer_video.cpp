@@ -18,7 +18,7 @@ int main()
     const std::string input_fmt_name = "dshow";  
     tinycv::VideoCap video_cap;
     video_cap.open(url, input_fmt_name);
-    const std::string engine_name = "../../quant/yolov5/engine_files/yolov5n-ptq-percentile-99.99-1024.engine";
+    const std::string engine_name = "../../quant/yolov5/engine_files/yolov5n-percentile-99.9999-1024.engine";
     // const std::string engine_name = "../../quant/yolov5/engine_files/yolov5n.engine";
     auto infer = tinycv::yolo::load(engine_name, 0.4, 0.4);
     Frame frame;

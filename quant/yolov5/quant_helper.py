@@ -11,7 +11,7 @@ from pytorch_quantization.nn.modules import _utils as quant_nn_utils
 from pytorch_quantization import calib as quant_calib
 from tqdm import tqdm
 
-def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "histogram"):
+def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "histogram") -> None:
     """set_calibrate_method
     Brief:
         For all the layer's input, use per-tensor quantization, and the calibrator method of input and weight are the same. 
@@ -19,35 +19,26 @@ def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "his
         use_per_channel: for each layer's weight use per-channel quantization.
         calib_method: the calibrator method.
     """
-    # # For input use per-tensor scale.
-    # quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
-    # quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
-    # quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
-    # quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
-    # if not use_per_channel:
-    #     # For weight use per-tensor scale too.
-    #     quant_desc_weight = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
-    #     quant_nn.QuantConv2d.set_default_quant_desc_weight(quant_desc_weight)
-    #     quant_nn.QuantLinear.set_default_quant_desc_weight(quant_desc_weight)
-    if use_per_channel:
-        # For input use per-tensor scale.
-        quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method)
-        quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
-        quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
-        quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
-    else:
-        # For input use per-tensor scale.
-        quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
-        quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
-        quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
-        quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
+    # For input use per-tensor scale.
+    quant_desc_input = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
+    quant_nn.QuantConv2d.set_default_quant_desc_input(quant_desc_input)
+    quant_nn.QuantMaxPool2d.set_default_quant_desc_input(quant_desc_input)
+    quant_nn.QuantLinear.set_default_quant_desc_input(quant_desc_input)
+    if not use_per_channel:
         # For weight use per-tensor scale too.
         quant_desc_weight = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
         quant_nn.QuantConv2d.set_default_quant_desc_weight(quant_desc_weight)
         quant_nn.QuantLinear.set_default_quant_desc_weight(quant_desc_weight)
 
 
-def replace_to_quantization_module(model: torch.nn.Module, ignore: List[str] = None):
+def replace_to_quantization_module(model: torch.nn.Module, ignore: List[str] = None) -> None:
+    """replace_to_quantization_module
+    Brief:
+        Replace torch.nn block to quant_nn block.
+    Args:
+        model - torch.nn.Module: the model to be replaced.
+        ignore - List[str]: the layers do not implement quantization.
+    """
     replace_dict = {}
     for entry in quant_modules._DEFAULT_QUANT_MAP:
         nn_hash = id(getattr(entry.orig_mod, entry.mod_name))
@@ -56,17 +47,33 @@ def replace_to_quantization_module(model: torch.nn.Module, ignore: List[str] = N
 
 
 def dfs(model: torch.nn.Module, ignore: List[str], replace_dict: Dict, record: str = ""):
+    """dfs
+    Brief: 
+        Deep first search to replace all the layers that can be replaced.
+    Args: 
+        model - torch.nn.Module: the model to be replaced.
+        ignore - List[str]: the layers do not implement quantization.
+        replace_dict - Dict: key: the hash value of torch.nn.Module -> value: the block of quant_nn
+        record - str: the record each layer.
+    """
     for name, sub_model in model._modules.items():
-        record = name if record == "" else record + '.' + name
-        dfs(sub_model, ignore, replace_dict, record)
+        path = name if record == "" else record + '.' + name
+        dfs(sub_model, ignore, replace_dict, path)
         nn_hash = id(type(sub_model))
         if nn_hash in replace_dict.keys():
-            if ignore is not None and name in ignore:
+            if ignore is not None and path in ignore:
                 continue
             model._modules[name] = transfer_torch_to_quantizaion(sub_model, replace_dict[nn_hash])
 
 
 def transfer_torch_to_quantizaion(nn_instance: torch.nn.Module, quant_module_cls: object):
+    """transfer_torch_to_quantizaion
+    Brief:
+        Transfer the instance of torch.nn.Module to the instance of quant.nn.
+    Args:
+        nn_instance - torch.nn.Module
+        quant_module_cls - object
+    """
     quant_instance = quant_module_cls.__new__(quant_module_cls)
     for k, v in vars(nn_instance).items():
         setattr(quant_instance, k, v)
@@ -117,6 +124,11 @@ class QuantCalibCtx():
 
 
 def quant_calib_wrapper(calib_func):
+    """quant_calib_wrapper
+    Brief:
+        When collection data, the calib option must be on and the quant option must be off.
+        After collection data, the calib option must be off and the quant option must be on.
+    """
     def wrapper(*args, **kwargs):
         model = kwargs["model"] if "model" in kwargs.keys() else args[0]
         quant_calib_ctx = QuantCalibCtx(model)
@@ -129,6 +141,15 @@ def quant_calib_wrapper(calib_func):
 @quant_calib_wrapper
 @torch.no_grad()
 def collect_statics(model: torch.nn.Module, dataloader, device, num_batch=200):
+    """collect_statics
+    Brief: 
+        Use dataloder to calibrate the quantization model.
+    Args:
+        model - torch.nn.Module
+        dataloader
+        device
+        num_batch
+    """
     model.to(device)
     for idx, datas in tqdm(enumerate(dataloader), total=min(len(dataloader), num_batch)):
         imgs: torch.Tensor = datas[0].to(device, non_blocking=True).float() / 255.0
@@ -138,6 +159,16 @@ def collect_statics(model: torch.nn.Module, dataloader, device, num_batch=200):
 
 
 def compute_amax(model: torch.nn.Module, device, **kwargs):
+    """compute_amax
+    Brief: 
+        Compute amax after calibration.
+    Args:
+        model - torch.nn.Module
+        device
+        **kwargs
+            method - str: must be one of "max", "percentile", "mse", "entropy"
+            percentile - float only valie when methos is "percentile"
+    """
     model.to(device)
     for _, module in model.named_modules():
         if isinstance(module, quant_nn.TensorQuantizer):
@@ -146,8 +177,8 @@ def compute_amax(model: torch.nn.Module, device, **kwargs):
                     module.load_calib_amax()
                 else:
                     module.load_calib_amax(**kwargs)
-                if module.amax is not None:
-                    module.amax.to(device)
+                # if module.amax is not None:
+                #     module.amax.to(device)
 
 
 class QuantExportOnnxCtx():
@@ -166,6 +197,10 @@ class QuantExportOnnxCtx():
 
 
 def quant_export_onnx_wrapper(export_func):
+    """quant_export_onnx_wrapper
+    Brief:
+        Set quant_nn.TensorQuantizer.use_fb_fake_quant before exporting.
+    """
     def wrapper(*args, **kwargs):
         quant_export_onnx_ctx = QuantExportOnnxCtx()
         quant_export_onnx_ctx.apply(True)

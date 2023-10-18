@@ -213,7 +213,6 @@ namespace tinycv
                 int n_infer_batch = get_n_infer_batch(n_batch);
                 if (n_infer_batch == 0)
                     return {};
-                clock_t preprocess_stamp = clock();
                 // prepare cache.
                 mix_mat_prepare_cache(n_infer_batch);
                 // preprocess.
@@ -231,7 +230,6 @@ namespace tinycv
                         127.0f, 255.0f, stream
                     );
                 }
-                clock_t inference_stamp = clock();
                 // foward...
                 std::vector<void *> bindings = {input_buffer_->device(), bbox_predict_->device()};  // binding input and output.
                 cudaStream_t _stream = reinterpret_cast<cudaStream_t>(stream);
@@ -240,17 +238,7 @@ namespace tinycv
                     INFO_ERROR("Error happened when forward, check the dims of bindings.");
                     return {};
                 }
-                clock_t postprocess_stamp = clock();
                 auto ret = postprocess(n_infer_batch, stream);
-                clock_t end_stamp = clock();
-                float preprocess_cost = static_cast<float>(inference_stamp - preprocess_stamp) / (CLOCKS_PER_SEC / 1000);
-                float inference_cost = static_cast<float>(postprocess_stamp - inference_stamp) / (CLOCKS_PER_SEC / 1000);
-                float postprocess_cost = static_cast<float>(end_stamp - postprocess_stamp) / (CLOCKS_PER_SEC / 1000);
-                INFO("Inference info: preprocess cost: %.2fms, inference cost cost: %.2fms, postprocess cost: %.2fms", 
-                    preprocess_cost, 
-                    inference_cost,
-                    postprocess_cost
-                );
                 return ret;
             }   
 

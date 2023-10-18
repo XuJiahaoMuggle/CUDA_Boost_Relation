@@ -7,7 +7,7 @@ from typing import *
 
 from utils.dataloaders import create_dataloader
 from utils.general import check_dataset
-from models.yolo import Model, attempt_load
+from models.yolo import Model, attempt_load, Detect
 
 import val
 import quant_helper
@@ -32,6 +32,8 @@ def prepare_dataloader(
         rect=True,
         cache=cache,
         workers=workers * 2,
+        rank=-1,
+        pad=0.5,
         image_weights=False
     )[0]
     return dataloader
@@ -44,15 +46,16 @@ def prepare_model(
         nc=80, 
         device=torch.device("cpu")
 ):
-    ckpt = torch.load(weight, map_location="cpu")
-    model: Model = Model(model_cfg, ch=ch, nc=nc).to(device)
-    state_dict = ckpt["model"].float().state_dict()
-    model.load_state_dict(state_dict, strict=False)
+    model = attempt_load(weight, device=device, inplace=True, fuse=True)
+    # ckpt = torch.load(weight, map_location="cpu")
+    # model: Model = Model(model_cfg, ch=ch, nc=nc).to(device)
+    # state_dict = ckpt["model"].float().state_dict()
+    # model.load_state_dict(state_dict, strict=False)
     model.float()
     model.eval()
-    with torch.no_grad():
-        model.fuse()
-        model.to(device)
+    # with torch.no_grad():
+    #     model.fuse()
+    #     model.to(device)
     return model    
 
 
@@ -96,11 +99,17 @@ def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_
             best_model_name = each.split('/')[-1]
             best_model_name = best_model_name[0:-4] if best_model_name.endswith(".pth") else best_model_name[0:-3]
     if export_best:
+        best_model.export = True
+        for k, m in best_model.named_modules():
+            if isinstance(m, Detect):
+                m.inplace = False
+                m.export = True
         quant_helper.export_onnx_ptq(
             best_model, 
             os.path.join(export_path, "".join([best_model_name, ".onnx"])),
             device=torch.device("cpu")
         )
+        best_model.export = False
 
 
 @torch.no_grad()
@@ -120,7 +129,7 @@ def run_yolov5_ptq(args):
     save_pth_path: str = args.save_pth_path
     ignore_layers: List = args.ignore_layers
     # load model & train dataloder 
-    model = prepare_model(weight, model_cfg, ch, nc, device)
+    model = prepare_model(weight, model_cfg, ch, nc, device).cuda()
     train_dataloader = prepare_dataloader(data_cfg, batch_size, "train", cache, workers)
     # initialize calibrate & insert qdq node.
     quant_helper.set_calibrate_method(use_per_channel=True, calib_method=calib_method)
