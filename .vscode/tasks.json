@@ -1,0 +1,25 @@
+{
+    "options": {
+       "cwd": "${workspaceFolder}/build"
+    },
+    "tasks": [
+       {
+          "label": "cmake",  
+          "command":"cmake",  
+          "args": ["-DCMAKE_BUILD_TYPE=Debug", ".."]  
+       },
+       {
+          "label": "build",  
+          "command":"cmake",
+		    "args": ["--build", ".", "-j 8"]
+       },
+       {
+          "label": "cmake build", 
+          "dependsOn":[  
+             "cmake",
+             "build"
+          ]
+       }
+    ],
+    "version": "2.0.0"
+ }

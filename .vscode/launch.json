@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "vs launch",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/workspace/Debug",
+            "program": "${workspaceFolder}/workspace/Debug/benchmark.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "console": "externalTerminal",
+            "preLaunchTask": "cmake build"
+        },
+        {
+            "name": "Python: File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "justMyCode": true
+        }
+    ]
+}
