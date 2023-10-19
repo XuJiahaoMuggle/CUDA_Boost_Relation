@@ -12,6 +12,7 @@ from models.yolo import Model, attempt_load, Detect
 import val
 import quant_helper
 
+
 def prepare_dataloader(
         data_cfg="./data/coco128.yaml", 
         batch_size: int = 32, 
@@ -60,11 +61,11 @@ def prepare_model(
 
 
 @torch.no_grad()
-def evaluate_accuracy(model: torch.nn.Module, data_cfg: str, device, val_loader):
-    model.to(device)
-    model.eval()
+def evaluate_accuracy(model: torch.nn.Module, data_cfg: str, val_loader) -> Tuple[float]:
     with open(data_cfg, encoding='utf-8') as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)
+    # the inference's device is decided by the model's device.
+    # if model's device is cuda then val.run will use fp16 to infer, else will use fp32 to infer.
     results, _, _ = val.run(
         data_dict,
         batch_size=val_loader.batch_size,
@@ -89,9 +90,9 @@ def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_
     best_map = 0.
     best_model_name = ""
     for each in models:
-        model = torch.load(each, map_location="cpu")
+        model = torch.load(each, map_location="cpu").to(device).eval()
         each = Path(each).as_posix()
-        map50_95, map50 = evaluate_accuracy(model, data_cfg, device, val_loader)
+        map50_95, map50 = evaluate_accuracy(model, data_cfg, val_loader)
         print(f'{each} evaluation:', "mAP@IoU=0.50:{:.5f}, mAP@IoU=0.50:0.95:{:.5f}".format(map50, map50_95))
         if best_map < map50_95:
             best_map = map50_95
@@ -110,6 +111,34 @@ def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_
             device=torch.device("cpu")
         )
         best_model.export = False
+    
+
+@torch.no_grad()
+def sensitive_analysis(model_path: str, data_cfg: str, device, val_loader, info_path: str):
+    assert os.path.exists(model_path), f"No such file called {model_path}"
+    model = torch.load(model_path, map_location="cpu").to(device).eval()
+    print(f"{model_path} starting sensitive analysis......")
+    model_path = Path(model_path).as_posix()
+    model_path = model_path.split('/')[-1]
+    model_name = model_path[0:-4] if model_path.endswith(".pth") else model_path[0:-3]
+    summary = quant_helper.SummaryTool(os.path.join(info_path, ''.join([model_name, ".json"])))
+    model.to(device)
+    model.eval()
+    for i in range(len(model.model)):
+        layer = model.model[i]
+        if quant_helper.contain_quant_layer(layer):
+            quant_helper.QuantDisable(layer).apply()
+            map50_95, map50 = evaluate_accuracy(model, data_cfg, val_loader)
+            quant_helper.QuantEnable(layer).apply()
+            summary.append([map50_95, map50, f"model.{i}"])
+            print(f"layer[{i}], map50: {map50}, map50_95: {map50_95}")
+
+    sorted_res = sorted(summary.data, key = lambda x: x[0], reverse=True)
+    print("Sensitive summary: ")
+    for idx, (map50_95, map50, name) in enumerate(sorted_res[:min(10, len(model.model))]):
+        print(f"Top{idx}: Using fp16 {name}, map50-95 = {map50_95:.5f}, map50 = {map50:.5f}")
+        summary.append([name, f"Top{idx}: Using fp16 {name}, map50-95 = {map50_95:.5f}, map50 = {map50:.5f}"])
+    summary.write()
 
 
 @torch.no_grad()
@@ -128,24 +157,26 @@ def run_yolov5_ptq(args):
     calib_method: str = args.calib_method
     save_pth_path: str = args.save_pth_path
     ignore_layers: List = args.ignore_layers
-    # load model & train dataloder 
-    model = prepare_model(weight, model_cfg, ch, nc, device).cuda()
     train_dataloader = prepare_dataloader(data_cfg, batch_size, "train", cache, workers)
-    # initialize calibrate & insert qdq node.
-    quant_helper.set_calibrate_method(use_per_channel=True, calib_method=calib_method)
-    quant_helper.replace_to_quantization_module(model, ignore_layers)
-    # collect statics.
-    quant_helper.collect_statics(model, train_dataloader, device, num_batch)
-    if calib_method == "histogram":
-        hist_percentile: List[float] = args.hist_percentile
-        for each in hist_percentile:
-            quant_helper.compute_amax(model, device=device, method="percentile", percentile=each)
-            calib_output = os.path.join(save_pth_path, f"yolov5n-percentile-{each}-{num_batch * train_dataloader.batch_size}.pth")
+    val_dataloader = prepare_dataloader(data_cfg, batch_size, "val", cache, workers)
+    # load model & train dataloder 
+    if args.calib:
+        model = prepare_model(weight, model_cfg, ch, nc, device).cuda()
+        # initialize calibrate & insert qdq node.
+        quant_helper.set_calibrate_method(use_per_channel=True, calib_method=calib_method)
+        quant_helper.replace_to_quantization_module(model, ignore_layers)
+        # collect statics.
+        quant_helper.collect_statics(model, train_dataloader, device, num_batch)
+        if calib_method == "histogram":
+            hist_percentile: List[float] = args.hist_percentile
+            for each in hist_percentile:
+                quant_helper.compute_amax(model, device=device, method="percentile", percentile=each)
+                calib_output = os.path.join(save_pth_path, f"yolov5n-percentile-{each}-{num_batch * train_dataloader.batch_size}.pth")
+                torch.save(model, calib_output)
+        else:  
+            quant_helper.compute_amax(model, method="max")
+            calib_output = os.path.join(save_pth_path, f"yolov5n-max-{num_batch * train_dataloader.batch_size}.pth")
             torch.save(model, calib_output)
-    else:  
-        quant_helper.compute_amax(model, method="max")
-        calib_output = os.path.join(save_pth_path, f"yolov5n-max-{num_batch * train_dataloader.batch_size}.pth")
-        torch.save(model, calib_output)
 
     if args.evaluate:
         workspace_path = os.getcwd()
@@ -153,8 +184,11 @@ def run_yolov5_ptq(args):
         assert os.path.exists(workspace_path), f"No such file or dir called {workspace_path}"
         models = [os.path.join(workspace_path, each) for each in os.listdir(workspace_path)]
         device = torch.device("cpu") if args.device == "cpu" else torch.device(''.join(["cuda:", args.device]))
-        val_dataloader = prepare_dataloader(data_cfg, batch_size, "val", cache, workers)
         evaluate_pqt_models(models, data_cfg, device, val_dataloader, args.export_onnx, args.save_onnx_path)
+
+    if args.sensitive != "":
+        sensitive_analysis(args.sensitive, data_cfg, device, val_dataloader, args.sensitive_path)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -166,15 +200,23 @@ def parse_args():
     parser.add_argument('--data_cfg', type=str, default='./data/coco128.yaml', help='data configure path')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
     parser.add_argument('--num_batch', type=int, default=32, help='number of batch')
-    parser.add_argument('--ignore_layers', default=['model.24.m.0', 'model.24.m.1', 'model.24.m.2'], help='the layers that skip quantization')
+    # use calib or not.
+    parser.add_argument('--calib', type=bool, default=True, help="calib")
+    parser.add_argument('--ignore_layers', default=[], help='the layers that skip quantization')
     parser.add_argument('--calib_method', type=str, choices=["max", "histogram"], default="histogram")
     parser.add_argument('--hist_percentile', nargs='+', type=float, default=[99.9, 99.99, 99.999, 99.9999])
     parser.add_argument('--save_pth_path', type=str, default="./pth_files")
     parser.add_argument('--workers', type=int, default=0, help='max dataloader workers (per RANK in DDP mode)')
     parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
+    # evaluate or not, will be valid only when clib is True or pth_files is not empty.
+    parser.add_argument('--evaluate', type=bool, default=True, help="evaluate map for each model")
+    # export or not, will be valid only when evaluate is True.
     parser.add_argument('--export_onnx', type=bool, default=True, help='export onnx model or not"')
     parser.add_argument('--save_onnx_path', type=str, default="./onnx_files")
-    parser.add_argument('--evaluate', type=bool, default=True, help="evaluate map for each model")
+    # sensitive analysis.
+    parser.add_argument('--sensitive', type=str, default="./pth_files/yolov5n-percentile-99.99-1024.pth", help="sensitive analysis")
+    parser.add_argument('--sensitive_path', type=str, default="./", help="sensitive analysis path")
+
     args = parser.parse_args()
     return args
 

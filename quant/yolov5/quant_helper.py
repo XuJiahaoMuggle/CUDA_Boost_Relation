@@ -1,3 +1,6 @@
+import json
+
+from tqdm import tqdm
 from typing import *
 
 import torch
@@ -9,7 +12,7 @@ from pytorch_quantization import quant_modules
 from pytorch_quantization import tensor_quant
 from pytorch_quantization.nn.modules import _utils as quant_nn_utils
 from pytorch_quantization import calib as quant_calib
-from tqdm import tqdm
+
 
 def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "histogram") -> None:
     """set_calibrate_method
@@ -158,6 +161,7 @@ def collect_statics(model: torch.nn.Module, dataloader, device, num_batch=200):
             break
 
 
+@torch.no_grad()
 def compute_amax(model: torch.nn.Module, device, **kwargs):
     """compute_amax
     Brief: 
@@ -200,6 +204,7 @@ def quant_export_onnx_wrapper(export_func):
     """quant_export_onnx_wrapper
     Brief:
         Set quant_nn.TensorQuantizer.use_fb_fake_quant before exporting.
+        After expotring set quant_nn.TensorQuantizer.use_fb_fake_quant to Fasle.
     """
     def wrapper(*args, **kwargs):
         quant_export_onnx_ctx = QuantExportOnnxCtx()
@@ -212,6 +217,16 @@ def quant_export_onnx_wrapper(export_func):
 @quant_export_onnx_wrapper
 @torch.no_grad()
 def export_onnx_ptq(model: torch.nn.Module, save_path: str, device, dynamic_batch: bool = False, simp: bool = True):
+    """export_onnx_ptq
+    Brief:
+        Export onnx model.
+    Args:
+        model - torch.nn.Module
+        save_path - str
+        device
+        dynamic_batch - bool
+        simp - bool
+    """
     input_dummy = torch.randn(1, 3, 640, 640, device=device)
     model.eval()
     model.to(device)
@@ -238,7 +253,7 @@ def contain_quant_layer(model: torch.nn.Module):
     return False
 
 
-class QuantDisable:
+class QuantDisable():
     def __init__(self, model: torch.nn.Module):
         self.model = model
 
@@ -255,7 +270,7 @@ class QuantDisable:
         self.apply(disabled=False)
 
 
-class QuantEnable:
+class QuantEnable():
     def __init__(self, model: torch.nn.Module):     
         self.model = model
         
@@ -272,6 +287,20 @@ class QuantEnable:
         self.apply(enabled=False)
 
 
+class SummaryTool():
+    def __init__(self, file: str):
+        self.file = file
+        self.data = []
+    
+    def append(self, item):
+        self.data.append(item)
+    
+    def write(self):
+        with open(self.file, 'w') as f:
+            json.dump(self.data, f, indent=4)
+
+
+# TODO: This may be useless, cause the situation is not common.
 def sensitive_analysis_wrapper(sensitive_func, model: torch.nn.Module):
     print("Doing sensitive analysis ...")
     if not hasattr(model, "__len__"):
