@@ -315,6 +315,27 @@ def sensitive_analysis_wrapper(sensitive_func, model: torch.nn.Module):
     return wrapper
 
 
+class QuantAdd(torch.nn.Module):
+    def __init__(self, quant: bool):
+        super(QuantAdd, self).__init__()
+        self.quant = quant
+        if quant:
+            self.input_quant0 = quant_nn.TensorQuantizer(
+                quant_nn_utils.QuantDescriptor(num_bits=8, calib_method="histogram")
+            )
+            self.input_quant0._calibrator._torch_hist = True
+            self.input_quant1 = quant_nn.TensorQuantizer(
+                quant_nn_utils.QuantDescriptor(num_bits=8, calib_method="histogram")
+            )
+            self.input_quant1._calibrator._torch_hist = True
+            self.use_fb_fake_quant = True
+    
+    def forward(self, x: torch.Tensor, y: torch.Tensor):
+        if self.quant:
+            return self.input_quant0(x) + self.input_quant1(y)
+        return x + y
+
+
 if __name__ == "__main__":
     import torchvision
     torch.manual_seed(12345)
