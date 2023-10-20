@@ -12,6 +12,7 @@ from models.common import Bottleneck
 
 import val
 import quant_helper
+import quant_rules
 
 
 def prepare_dataloader(
@@ -48,16 +49,15 @@ def prepare_model(
         nc=80, 
         device=torch.device("cpu")
 ):
-    model = attempt_load(weight, device=device, inplace=True, fuse=True)
-    # ckpt = torch.load(weight, map_location="cpu")
-    # model: Model = Model(model_cfg, ch=ch, nc=nc).to(device)
-    # state_dict = ckpt["model"].float().state_dict()
-    # model.load_state_dict(state_dict, strict=False)
+    # model = attempt_load(weight, device=device, inplace=True, fuse=True)
+    model: torch.nn.Module = torch.load(weight, map_location=device)["model"]
+    for m in model.modules():
+        if type(m) is torch.nn.Upsample:
+            m.recompute_scale_factor = None
     model.float()
     model.eval()
-    # with torch.no_grad():
-    #     model.fuse()
-    #     model.to(device)
+    with torch.no_grad():
+        model.fuse()
     return model    
 
 
@@ -103,13 +103,14 @@ def evaluate_accuracy(model: torch.nn.Module, data_cfg: str, val_loader) -> Tupl
 
 
 @torch.no_grad()
-def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_best: bool, export_path):
+def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_best: bool, export_path, quant_add: bool):
     best_model = None
     best_map = 0.
     best_model_name = ""
     for each in models:
         model = torch.load(each, map_location="cpu").to(device).eval()
-        repalce_bottleneck_forward(model)  # in case of evaluate with out calib
+        if quant_add:
+            repalce_bottleneck_forward(model)  # in case of evaluate with out calib
         each = Path(each).as_posix()
         map50_95, map50 = evaluate_accuracy(model, data_cfg, val_loader)
         print(f'{each} evaluation:', "mAP@IoU=0.50:{:.5f}, mAP@IoU=0.50:0.95:{:.5f}".format(map50, map50_95))
@@ -119,19 +120,14 @@ def evaluate_pqt_models(models: List[str], data_cfg, device, val_loader, export_
             best_model_name = each.split('/')[-1]
             best_model_name = best_model_name[0:-4] if best_model_name.endswith(".pth") else best_model_name[0:-3]
     if export_best:
-        best_model.export = True
-        for k, m in best_model.named_modules():
-            if isinstance(m, Detect):
-                m.inplace = False
-                m.export = True
+        quant_rules.apply_custom_rules_to_model(best_model)
         quant_helper.export_onnx_ptq(
             best_model, 
             os.path.join(export_path, "".join([best_model_name, ".onnx"])),
             device=torch.device("cpu"),
             simp=False
         )
-        best_model.export = False
-    
+
 
 @torch.no_grad()
 def sensitive_analysis(model_path: str, data_cfg: str, device, val_loader, info_path: str):
@@ -177,15 +173,17 @@ def run_yolov5_ptq(args):
     calib_method: str = args.calib_method
     save_pth_path: str = args.save_pth_path
     ignore_layers: List = args.ignore_layers
+    quant_add: bool = args.quant_add
     train_dataloader = prepare_dataloader(data_cfg, batch_size, "train", cache, workers)
     val_dataloader = prepare_dataloader(data_cfg, batch_size, "val", cache, workers)
+    quant_helper.set_calibrate_method(use_per_channel=True, calib_method=calib_method)
     # load model & train dataloder 
     if args.calib:
         model = prepare_model(weight, model_cfg, ch, nc, device).cuda()
+        if quant_add:
+            repalce_bottleneck_forward(model)
         # initialize calibrate & insert qdq node.
-        quant_helper.set_calibrate_method(use_per_channel=True, calib_method=calib_method)
         quant_helper.replace_to_quantization_module(model, ignore_layers)
-        repalce_bottleneck_forward(model)
         # collect statics.
         quant_helper.collect_statics(model, train_dataloader, device, num_batch)
         if calib_method == "histogram":
@@ -200,12 +198,11 @@ def run_yolov5_ptq(args):
             torch.save(model, calib_output)
 
     if args.evaluate:
-        workspace_path = os.getcwd()
-        workspace_path = os.path.join(workspace_path, "pth_files")
+        workspace_path = os.path.join(os.getcwd(), "pth_files")
         assert os.path.exists(workspace_path), f"No such file or dir called {workspace_path}"
         models = [os.path.join(workspace_path, each) for each in os.listdir(workspace_path)]
         device = torch.device("cpu") if args.device == "cpu" else torch.device(''.join(["cuda:", args.device]))
-        evaluate_pqt_models(models, data_cfg, device, val_dataloader, args.export_onnx, args.save_onnx_path)
+        evaluate_pqt_models(models, data_cfg, device, val_dataloader, args.export_onnx, args.save_onnx_path, quant_add)
 
     if args.sensitive != "":
         sensitive_analysis(args.sensitive, data_cfg, device, val_dataloader, args.sensitive_path)
@@ -221,9 +218,11 @@ def parse_args():
     parser.add_argument('--data_cfg', type=str, default='./data/coco128.yaml', help='data configure path')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
     parser.add_argument('--num_batch', type=int, default=32, help='number of batch')
+    # replace quant bottleneck or not.
+    parser.add_argument('--quant_add', type=bool, default=False, help='quant bottleneck add or not')
     # use calib or not.
-    parser.add_argument('--calib', type=bool, default=False, help="calib")
-    parser.add_argument('--ignore_layers', default=[], help='the layers that skip quantization')
+    parser.add_argument('--calib', type=bool, default=True, help="calib")
+    parser.add_argument('--ignore_layers', default=["model.24.m.0", "model.24.m.1", "model.24.m.2"], help='the layers that skip quantization')
     parser.add_argument('--calib_method', type=str, choices=["max", "histogram"], default="histogram")
     parser.add_argument('--hist_percentile', nargs='+', type=float, default=[99.9, 99.99, 99.999, 99.9999])
     parser.add_argument('--save_pth_path', type=str, default="./pth_files")
@@ -245,6 +244,3 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     run_yolov5_ptq(args)
-    # device = torch.device("cuda:0")
-    # model = torch.load("./pth_files/yolov5n-percentile-99.99-1024.pth", map_location="cpu").to(device).eval()  
-    # x = torch.randn(1, 3, 640, 640).to(device)

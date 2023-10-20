@@ -12,6 +12,7 @@ from pytorch_quantization import quant_modules
 from pytorch_quantization import tensor_quant
 from pytorch_quantization.nn.modules import _utils as quant_nn_utils
 from pytorch_quantization import calib as quant_calib
+from absl import logging as quant_logging
 
 
 def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "histogram") -> None:
@@ -32,6 +33,7 @@ def set_calibrate_method(use_per_channel: bool = False, calib_method: str = "his
         quant_desc_weight = tensor_quant.QuantDescriptor(calib_method = calib_method, axis = None)
         quant_nn.QuantConv2d.set_default_quant_desc_weight(quant_desc_weight)
         quant_nn.QuantLinear.set_default_quant_desc_weight(quant_desc_weight)
+    quant_logging.set_verbosity(quant_logging.ERROR)
 
 
 def replace_to_quantization_module(model: torch.nn.Module, ignore: List[str] = None) -> None:
@@ -227,9 +229,12 @@ def export_onnx_ptq(model: torch.nn.Module, save_path: str, device, dynamic_batc
         dynamic_batch - bool
         simp - bool
     """
-    input_dummy = torch.randn(1, 3, 640, 640, device=device)
     model.eval()
     model.to(device)
+    input_dummy = torch.randn(1, 3, 640, 640, device=device)
+    model.model[-1].concat = True
+    grid_old_func = model.model[-1]._make_grid
+    model.model[-1]._make_grid = lambda *args: [torch.from_numpy(item.cpu().data.numpy()).to(item.device) for item in grid_old_func(*args)]    
     torch.onnx.export(
         model,
         args=input_dummy,
@@ -239,6 +244,8 @@ def export_onnx_ptq(model: torch.nn.Module, save_path: str, device, dynamic_batc
         output_names=["output"],
         dynamic_axes={"images": {0: "batch"}} if dynamic_batch else None
     )
+    model.model[-1].concat = False
+    model.model[-1]._make_grid = grid_old_func
     if simp:
         onnx_model = onnx.load(save_path)
         onnx.checker.check_model(onnx_model)
@@ -324,10 +331,7 @@ class QuantAdd(torch.nn.Module):
                 quant_nn_utils.QuantDescriptor(num_bits=8, calib_method="histogram")
             )
             self.input_quant0._calibrator._torch_hist = True
-            self.input_quant1 = quant_nn.TensorQuantizer(
-                quant_nn_utils.QuantDescriptor(num_bits=8, calib_method="histogram")
-            )
-            self.input_quant1._calibrator._torch_hist = True
+            self.input_quant1 = self.input_quant0
             self.use_fb_fake_quant = True
     
     def forward(self, x: torch.Tensor, y: torch.Tensor):
