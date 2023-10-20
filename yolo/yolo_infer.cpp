@@ -327,13 +327,16 @@ namespace tinycv
             float confidence_threshold_ = 0.5;
             float nms_threshold_ = 0.5;
 
-            // Use BaseMemory here cause the data transmission from GPU to CPU rely on stream heavily.
+            // Use BaseMemory here cause the data transmission from GPU to CPU rely on stream is heavily.
             std::shared_ptr<BaseMemory> frame_buffer_ = nullptr;  // Read from video or image, it should be uint8_t type.
             std::shared_ptr<BaseMemory> preprocess_buffer_ = nullptr;  // 32B(affine matrix) * n + (c * h * w) B.
             std::shared_ptr<BaseMemory> input_buffer_ = nullptr;  // The network's input, which may be [n, 3, 640, 640], it should be float32.
             std::shared_ptr<BaseMemory> bbox_predict_ = nullptr;  // The network's output, which may be[n, 25200, 85], it should be float32.
             std::shared_ptr<BaseMemory> output_boxarray_ = nullptr;  // to handle the output and contains the information, it should be float32. 
             std::shared_ptr<BaseMemory> visual_buffer_ = nullptr; 
+
+            std::shared_ptr<BaseMemory> segment_buffer_ = nullptr;
+
             int n_classes_ = -1;
             int height_ = -1, width_ = -1, n_channels_ = -1;
             bool is_dynamic_mode_ = false; 

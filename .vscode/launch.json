@@ -6,7 +6,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "cwd": "${workspaceFolder}/workspace/Debug",
-            "program": "${workspaceFolder}/workspace/Debug/benchmark.exe",
+            "program": "${workspaceFolder}/workspace/Debug/infer_video.exe",
             "args": [],
             "stopAtEntry": false,
             "console": "externalTerminal",
